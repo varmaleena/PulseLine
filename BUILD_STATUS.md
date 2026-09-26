@@ -1,5 +1,17 @@
 # PulseLine implementation audit — 26 September 2026
 
+## Latest verified result
+
+- The app source is published to `https://github.com/varmaleena/PulseLine` on `main`. The local key, transcripts, dependencies, test recordings, and screenshots are excluded.
+- The interface includes a persistent Start/End bar, an expandable step-by-step guide, automatic patient microphone start, speaker switching in the live conversation panel, distinct Heard/Translation fields, and a persistent attention summary.
+- Fixed continuous Live Translate phrase finalization: translated history no longer depends solely on a `turnComplete` event that the live service does not consistently send.
+- All **17 regression tests**, the build, and Hindi/Telugu browser rehearsal checks pass.
+- **Four real-provider synthetic-audio browser tests pass:** Hindi → English, Telugu → English, English → Hindi, and English → Telugu. Generated WAV speech entered Chromium's microphone and passed through the actual AudioWorklet and gateway. Tests observed live transcripts, translated history, returned audio, browser playback scheduling, and session end.
+- Both patient breathing-distress examples automatically raised an attention flag without a manual click. Sustained-volume attention is also covered by a unit test. These are narrow attention aids, not general clinical severity classification.
+- Remaining: physical microphone/tablet and venue validation, broader accuracy/latency/false-positive evaluation, and cloud deployment. Current local URL: `http://localhost:8082`.
+
+The sections below preserve the earlier audit and its then-current limitations.
+
 ## Local live verification follow-up
 
 The key is now configured privately. Both Hindi and Telugu live stream setups and dedicated TTS requests passed against Gemini. Live testing revealed that transcription configuration must be at the setup level; the adapter and regression test were corrected. All 14 tests and the build pass, and both scripted browser flows pass. The updated local server uses port 8082 because 8080 was occupied. Real microphone interpretation quality, full speech-to-playback latency, and cloud deployment still require verification. The original audit below records the earlier baseline.
