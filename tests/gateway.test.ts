@@ -1,0 +1,29 @@
+import { test,after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp,readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WebSocket } from 'ws';
+import { createGateway } from '../backend/server.js';
+import { messageSchema,rms } from '../backend/protocol.js';
+const dir=await mkdtemp(join(tmpdir(),'pulseline-tests-'));process.env.DATA_DIR=dir;process.env.STORE='local';delete process.env.STAFF_PIN;
+const gateway=createGateway();await new Promise<void>(r=>gateway.server.listen(0,'127.0.0.1',r));const port=(gateway.server.address() as any).port;
+after(async()=>await gateway.close());
+async function client(){const ws=new WebSocket(`ws://127.0.0.1:${port}/ws`);const queue:any[]=[];let wake:((e:any)=>void)|undefined;ws.on('message',raw=>{const event=JSON.parse(raw.toString());if(wake){const fn=wake;wake=undefined;fn(event);}else queue.push(event);});await new Promise<void>((r,j)=>{ws.once('open',r);ws.once('error',j);});return {ws,send:(m:object)=>ws.send(JSON.stringify(m)),next:()=>queue.length?Promise.resolve(queue.shift()):new Promise<any>((r,j)=>{const timer=setTimeout(()=>{wake=undefined;j(new Error('Event timeout'));},3000);wake=e=>{clearTimeout(timer);r(e);};})};}
+test('protocol rejects invalid languages, chunks and sequence numbers',()=>{
+ assert.equal(messageSchema.safeParse({type:'session_start',doctorLanguage:'en',patientLanguage:'fr'}).success,false);
+ assert.equal(messageSchema.safeParse({type:'audio_chunk',mic:'patient',seq:-1,data:'AAAA'}).success,false);
+ assert.equal(messageSchema.safeParse({type:'audio_chunk',mic:'patient',seq:1,data:'!!!!'}).success,false);
+ assert.equal(rms(Buffer.alloc(3200)),0);const loud=Buffer.alloc(3200);for(let i=0;i<3200;i+=2)loud.writeInt16LE(16384,i);assert.equal(rms(loud),.5);
+});
+for(const patientLanguage of ['hi','te'])test(`${patientLanguage}: rehearsal flows through gateway, urgency, persistence and end`,async()=>{
+ const c=await client();c.send({type:'session_start',doctorLanguage:'en',patientLanguage,mode:'demo'});const started=await c.next();assert.equal(started.type,'session_started');
+ c.send({type:'demo_turn',index:0});assert.equal((await c.next()).type,'transcript_update');const first=await c.next();assert.equal(first.speaker,'doctor');assert.ok(first.translated_text);assert.equal(first.urgency,'normal');
+ c.send({type:'demo_turn',index:3});assert.equal((await c.next()).type,'transcript_update');assert.equal((await c.next()).urgency,'high');assert.equal((await c.next()).type,'interrupt');const urgent=await c.next();assert.equal(urgent.interrupt,true);assert.equal(urgent.speaker,'patient');
+ c.send({type:'session_end'});assert.equal((await c.next()).type,'session_ended');const stored=JSON.parse(await readFile(join(dir,started.sessionId+'.json'),'utf8'));assert.equal(stored.status,'ended');assert.equal(stored.turns.length,2);assert.equal(stored.languages.patient,patientLanguage);c.ws.close();
+});
+test('requires handshake and refuses duplicate starts',async()=>{const c=await client();c.send({type:'demo_turn',index:0});assert.equal((await c.next()).type,'error');c.send({type:'session_start',doctorLanguage:'en',patientLanguage:'hi'});await c.next();c.send({type:'session_start',doctorLanguage:'en',patientLanguage:'te'});assert.equal((await c.next()).message,'Session already started');c.send({type:'session_end'});await c.next();c.ws.close();});
+test('malformed JSON is recoverable',async()=>{const c=await client();c.ws.send('{');assert.equal((await c.next()).message,'Invalid JSON');c.ws.close();});
+test('rejects foreign browser origins',async()=>{const ws=new WebSocket(`ws://127.0.0.1:${port}/ws`,{origin:'https://attacker.example'});const error=await new Promise<Error>(r=>ws.once('error',r));assert.match(error.message,/403/);});
+test('rejects microphone data in demo mode',async()=>{const c=await client();c.send({type:'session_start',doctorLanguage:'en',patientLanguage:'hi'});await c.next();c.send({type:'audio_chunk',mic:'doctor',seq:0,data:'AAAA'});assert.equal((await c.next()).type,'error');c.send({type:'session_end'});await c.next();c.ws.close();});
+test('manual urgency can be cleared',async()=>{const c=await client();c.send({type:'session_start',doctorLanguage:'en',patientLanguage:'hi'});await c.next();c.send({type:'flag_urgent',speaker:'patient',urgency:'high'});assert.equal((await c.next()).source,'manual');await c.next();c.send({type:'flag_urgent',speaker:'patient',urgency:'normal'});assert.equal((await c.next()).urgency,'normal');c.send({type:'session_end'});await c.next();c.ws.close();});

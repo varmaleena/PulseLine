@@ -1,0 +1,20 @@
+steps:
+  - name: node:22
+    entrypoint: npm
+    args: [ci]
+  - name: node:22
+    entrypoint: npm
+    args: [test]
+  - name: node:22
+    entrypoint: npm
+    args: [run, build]
+  - name: gcr.io/cloud-builders/docker
+    args: [build, '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/pulseline/app:$BUILD_ID', '.']
+  - name: gcr.io/cloud-builders/docker
+    args: [push, 'us-central1-docker.pkg.dev/$PROJECT_ID/pulseline/app:$BUILD_ID']
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args: [run, deploy, pulseline, '--image=us-central1-docker.pkg.dev/$PROJECT_ID/pulseline/app:$BUILD_ID', '--region=us-central1', '--quiet']
+images: ['us-central1-docker.pkg.dev/$PROJECT_ID/pulseline/app:$BUILD_ID']
+options:
+  logging: CLOUD_LOGGING_ONLY
