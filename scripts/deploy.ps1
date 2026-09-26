@@ -1,4 +1,4 @@
-param([string]$ProjectId='spry-catcher-509805-u4',[string]$Region='us-central1')
+param([string]$ProjectId='hackathon-c78aa',[string]$Region='us-central1')
 $ErrorActionPreference='Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function Invoke-Gcloud { & gcloud @args; if ($LASTEXITCODE -ne 0) { throw "gcloud failed: $($args[0])" } }

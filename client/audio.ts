@@ -20,7 +20,7 @@ export class Playback {
   if(mime.includes('pcm')){const rate=Number(mime.match(/rate=(\d+)/)?.[1]||24000);buffer=ctx.createBuffer(1,Math.floor(bytes.length/2),rate);const view=new DataView(bytes.buffer),channel=buffer.getChannelData(0);for(let i=0;i<channel.length;i++)channel[i]=view.getInt16(i*2,true)/32768;}
   else buffer=await ctx.decodeAudioData(bytes.buffer);
   if(generation!==this.generation)return;
-  const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);const start=Math.max(ctx.currentTime+.02,this.next);this.next=start+buffer.duration;this.sources.add(source);source.onended=()=>this.sources.delete(source);source.start(start);
+  const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);const start=Math.max(ctx.currentTime+.02,this.next);this.next=start+buffer.duration;this.sources.add(source);source.onended=()=>this.sources.delete(source);source.start(start);return Math.max(0,(this.next-ctx.currentTime)*1000);
  }
  stop(){this.generation++;for(const source of this.sources)try{source.stop();}catch{}this.sources.clear();this.next=0;}
 }

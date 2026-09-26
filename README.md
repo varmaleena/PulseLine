@@ -56,7 +56,7 @@ API references checked during implementation:
 | `GEMINI_API_KEY` | unset | Required for live sessions |
 | `STORE` | `local` | Set to `firestore` for cloud persistence |
 | `DATA_DIR` | `data` | Local transcript directory |
-| `GOOGLE_CLOUD_PROJECT` | your ADC project | Set to `spry-catcher-509805-u4` |
+| `GOOGLE_CLOUD_PROJECT` | your ADC project | Set to `hackathon-c78aa` |
 | `STAFF_PIN` | unset | Optional local gate; required by deployment script |
 | `ALLOWED_ORIGINS` | localhost origins | Exact comma-separated browser origins |
 | `URGENCY_MODE` | `acoustic` | `gemini` enables experimental model monitoring |
@@ -65,12 +65,12 @@ API references checked during implementation:
 
 Acoustic mode measures sustained RMS intensity above 0.22 for 450 ms, with a five-second cooldown. It can raise **elevated**, never high; the clinician can set high manually. It does not infer emotions, diagnose symptoms, or claim validated urgency detection. Flags stay set until explicitly cleared. No speaking-rate classification is claimed.
 
-## Deploy to `spry-catcher-509805-u4`
+## Deploy to `hackathon-c78aa`
 
 Install the official Google Cloud CLI, sign in with `gcloud auth login`, and ensure billing and deployment permissions are available. In Secret Manager create `gemini-api-key` and `pulseline-staff-pin`, each with an enabled secret version. Do not paste keys into source or shell history.
 
 ```powershell
-./scripts/deploy.ps1 -ProjectId spry-catcher-509805-u4
+./scripts/deploy.ps1 -ProjectId hackathon-c78aa
 ```
 
 The script enables required APIs, creates the service account, grants Firestore access and secret-level access, creates Firestore and Artifact Registry if absent, and source-deploys the Docker container with minimum one instance. Cloud Run serves the frontend and WebSocket from the same HTTPS origin. The service is publicly reachable; its WebSocket handshake requires the secret-mounted staff PIN. This is a prototype gate, not hospital identity management.
@@ -80,7 +80,7 @@ Optional Firebase Hosting:
 ```powershell
 npm run build
 ./scripts/configure-hosting.ps1 -GatewayUrl https://YOUR-SERVICE.run.app
-firebase deploy --only hosting,firestore:rules --project spry-catcher-509805-u4
+firebase deploy --only hosting,firestore:rules --project hackathon-c78aa
 ```
 
 Initialize Firebase for the existing GCP project if necessary. Hosting serves static assets and proxies `/api/**`; the browser opens WebSockets directly to Cloud Run. The deployment script allows both Firebase domains. Cloud Build YAML can be attached to a repository trigger after initial deployment; grant the build service account only the needed Artifact Registry, Run deployment, and service-account-user permissions.
