@@ -7,14 +7,16 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer,WebSocket } from 'ws';
 import { Session } from './session.js';
 import { messageSchema } from './protocol.js';
+import { generatePdf,reportAccessSchema,reportFilename,structuredEncounter } from './reports.js';
 export function createGateway(){
- const app=express();app.disable('x-powered-by');
+ const app=express();app.disable('x-powered-by');const sessions=new Set<Session>();const reportSessions=new Map<string,Session>();
  app.use((_req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Permissions-Policy','microphone=(self)');next();});
  app.get('/api/config',(_req,res)=>res.json({liveAvailable:!!process.env.GEMINI_API_KEY,pinRequired:!!process.env.STAFF_PIN,storage:process.env.STORE||'local',urgencyMode:process.env.URGENCY_MODE||'acoustic'}));
  app.get('/api/health',(_req,res)=>res.json({status:'ok',activeSessions:sessions.size}));
+ app.post('/api/reports',express.json({limit:'128kb'}),async(req,res)=>{res.setHeader('Cache-Control','no-store');const access=reportAccessSchema.safeParse(req.body);if(!access.success){res.status(400).json({error:'Invalid report request'});return;}const session=reportSessions.get(access.data.sessionId);const report=session?.report(access.data.type,access.data.reportToken,access.data.review);if(!report){res.status(403).json({error:'Report access expired or invalid'});return;}try{const name=reportFilename(report);res.setHeader('Content-Disposition',`attachment; filename="${name}"`);if(report.type==='json'){res.type('application/json').send(JSON.stringify(structuredEncounter(report),null,2));return;}res.type('application/pdf').send(await generatePdf(report));}catch(error){console.error(JSON.stringify({event:'report_generation_failed',message:error instanceof Error?error.message:'unknown'}));res.status(500).json({error:'Report generation failed'});}});
  const staticRoot=resolve(fileURLToPath(new URL('../client/',import.meta.url)));
  app.use(express.static(staticRoot));
- const server=createServer(app);const wss=new WebSocketServer({noServer:true,maxPayload:32000});const sessions=new Set<Session>();
+ const server=createServer(app);const wss=new WebSocketServer({noServer:true,maxPayload:32000});
  server.on('upgrade',(req,socket,head)=>{
   const origin=req.headers.origin;const allowed=(process.env.ALLOWED_ORIGINS||'http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080').split(',');
   if(req.url!=='/ws'||(origin&&!allowed.includes(origin))||wss.clients.size>=Number(process.env.MAX_SESSIONS||20)){socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');socket.destroy();return;}
@@ -35,7 +37,7 @@ export function createGateway(){
      if(session||starting||ended)throw new Error('Session already started');
      const expected=process.env.STAFF_PIN;if(expected){const a=Buffer.from(expected),b=Buffer.from(message.pin||'');if(a.length!==b.length||!timingSafeEqual(a,b)){ws.close(1008,'Invalid staff PIN');return;}}
      if(message.mode==='live'&&!process.env.GEMINI_API_KEY)throw new Error('Live mode needs GEMINI_API_KEY on the server');
-     starting=true;clearTimeout(handshake);session=new Session(message.patientLanguage,message.mode,send);sessions.add(session);
+     starting=true;clearTimeout(handshake);session=new Session(message.patientLanguage,message.mode,message.patient,send);sessions.add(session);reportSessions.set(session.record.sessionId,session);
      try{await session.start();}catch{await session.end();sessions.delete(session);ws.close(1011,'Provider connection failed');}finally{starting=false;if(ws.readyState!==WebSocket.OPEN)await session.end();}
     }else{
      if(!session||starting||ended)throw new Error('Start a session first');
@@ -45,9 +47,9 @@ export function createGateway(){
    }catch(error){send({type:'error',message:error instanceof SyntaxError?'Invalid JSON':error instanceof Error?error.message:'Request failed'});}
   });
   ws.on('error',()=>{});
-  ws.on('close',()=>{clearTimeout(handshake);clearTimeout(lifetime);clearInterval(heartbeat);if(session){sessions.delete(session);void session.end();}});
+  ws.on('close',()=>{clearTimeout(handshake);clearTimeout(lifetime);clearInterval(heartbeat);if(session){sessions.delete(session);void session.end();const id=session.record.sessionId;setTimeout(()=>reportSessions.delete(id),15*60*1000).unref();}});
  });
- async function close(){for(const ws of wss.clients)ws.close(1001,'Server restarting');await Promise.all([...sessions].map(s=>s.end()));wss.close();await new Promise<void>(r=>server.close(()=>r()));}
+ async function close(){for(const ws of wss.clients)ws.close(1001,'Server restarting');await Promise.all([...sessions].map(s=>s.end()));reportSessions.clear();wss.close();await new Promise<void>(r=>server.close(()=>r()));}
  return {server,close};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){

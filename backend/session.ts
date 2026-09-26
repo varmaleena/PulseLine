@@ -1,6 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes,randomUUID,timingSafeEqual } from 'node:crypto';
+import type { ReportRequest } from './reports.js';
 import { GeminiPipeline } from './gemini.js';
-import { phrases,rms,type Speaker,type Urgency,type Turn,type ClientMessage } from './protocol.js';
+import { phrases,rms,type Patient,type Speaker,type Urgency,type Turn,type ClientMessage } from './protocol.js';
+import { analyzeTurns } from './clinical.js';
 import { SessionStore,type RecordData } from './store.js';
 import { reportedAttention } from './attention.js';
 export class Session {
@@ -18,7 +20,8 @@ export class Session {
  private lastFlag={doctor:0,patient:0};
  private began={doctor:0,patient:0};
  private store=new SessionStore();
- constructor(language:'hi'|'te',mode:'demo'|'live',private send:(event:Record<string,unknown>)=>void){this.record={sessionId:randomUUID(),status:'active',startedAt:new Date().toISOString(),languages:{doctor:'en',patient:language},mode,turns:[]};}
+ private reportToken=randomBytes(32).toString('hex');
+ constructor(language:'hi'|'te',mode:'demo'|'live',patient:Patient,private send:(event:Record<string,unknown>)=>void){this.record={sessionId:randomUUID(),status:'active',startedAt:new Date().toISOString(),languages:{doctor:'en',patient:language},patient,mode,turns:[]};}
  start(){
   this.initializing=this.initialize();return this.initializing;
  }
@@ -30,7 +33,7 @@ export class Session {
    await this.pipeline.start();
   }
   if(this.ended)return;
-  this.send({type:'session_started',sessionId:this.record.sessionId,mode:this.record.mode,urgencyMode:process.env.URGENCY_MODE||'acoustic',speechMode:process.env.SPEECH_MODE||'native'});
+  this.send({type:'session_started',sessionId:this.record.sessionId,reportToken:this.reportToken,mode:this.record.mode,urgencyMode:process.env.URGENCY_MODE||'acoustic',speechMode:process.env.SPEECH_MODE||'native'});
  }
  flag(speaker:Speaker,urgency:Urgency,source='manual'){
   if(this.ended)return;
@@ -68,6 +71,7 @@ export class Session {
   if(reason&&this.urgency[speaker]!=='high')this.flag(speaker,'high',reason);
   const turn:Turn={id:randomUUID(),speaker,original_text,translated_text,urgency:this.urgency[speaker],timestamp:new Date().toISOString(),interrupt:this.urgency[speaker]==='high',latency_ms:this.began[speaker]?Date.now()-this.began[speaker]:0,provisional};this.began[speaker]=0;
   this.record.turns.push(turn);this.send({type:'translated_turn',...turn,audio:null});
+  this.send({type:'clinical_update',summary:analyzeTurns(this.record.turns)});
   console.log(JSON.stringify({event:'translated_turn',sessionId:this.record.sessionId,speaker,latency_ms:turn.latency_ms,urgency:turn.urgency}));
   this.queue=this.queue.then(async()=>{
    try{await this.store.save(this.record,turn);}catch{this.send({type:'error',message:'Transcript could not be saved. Export the transcript before closing.'});}
@@ -89,4 +93,5 @@ export class Session {
   try{await this.store.save(this.record);}catch{this.send({type:'error',message:'Session could not be saved. Export your local transcript.'});}
   this.send({type:'session_ended',sessionId:this.record.sessionId,turnCount:this.record.turns.length});
  }
+ report(type:ReportRequest['type'],token:string,review:ReportRequest['review']):ReportRequest|undefined{const a=Buffer.from(this.reportToken),b=Buffer.from(token);if(a.length!==b.length||!timingSafeEqual(a,b))return;return {type,patient:this.record.patient,languages:this.record.languages,sessionId:this.record.sessionId,startedAt:this.record.startedAt,endedAt:this.record.endedAt,turns:this.record.turns,review};}
 }

@@ -1,8 +1,8 @@
 import { mkdir,writeFile,rename } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Firestore } from '@google-cloud/firestore';
-import type { Turn } from './protocol.js';
-export interface RecordData {sessionId:string;status:'active'|'ended';startedAt:string;endedAt?:string;languages:{doctor:'en';patient:'hi'|'te'};mode:string;turns:Turn[]}
+import type { Patient,Turn } from './protocol.js';
+export interface RecordData {sessionId:string;status:'active'|'ended';startedAt:string;endedAt?:string;languages:{doctor:'en';patient:'hi'|'te'};patient:Patient;mode:string;turns:Turn[]}
 export class SessionStore {
  private db = process.env.STORE==='firestore'?new Firestore():null;
  private dir=resolve(process.env.DATA_DIR||'data');

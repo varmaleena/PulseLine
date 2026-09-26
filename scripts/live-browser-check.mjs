@@ -30,7 +30,7 @@ for(const c of cases){
   await page.addInitScript(()=>{window.playedAudio=0;const original=AudioBufferSourceNode.prototype.start;AudioBufferSourceNode.prototype.start=function(...args){window.playedAudio++;return original.apply(this,args);};});
   page.on('pageerror',e=>errors.push(e.message));
   page.on('websocket',ws=>ws.on('framereceived',frame=>{try{const e=JSON.parse(String(frame.payload));if(e.type==='audio_output')audio++;if(e.type==='transcript_update')transcripts++;if(e.type==='audio_received')chunks++;}catch{}}));
-  await page.goto(process.env.TEST_BASE_URL||'http://localhost:8082');await page.selectOption('#mode','live');await page.selectOption('#language',c.language);await page.click('#start');
+  await page.goto(process.env.TEST_BASE_URL||'http://localhost:8082');await page.fill('#patient-name','Asha Rao');await page.fill('#patient-id','P-1001');await page.fill('#reason','Breathing difficulty');await page.check('#consent');await page.selectOption('#mode','live');await page.selectOption('#language',c.language);await page.click('#start');
   await page.locator('#connection').filter({hasText:'Live connection'}).waitFor({timeout:110000});
   if(c.speaker==='doctor')await page.click('#doctor-talk');
   await page.waitForFunction(side=>{const text=document.getElementById(side+'-live-original').textContent;return text&&!text.startsWith('Waiting');},c.speaker,{timeout:45000});
